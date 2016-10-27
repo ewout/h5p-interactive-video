@@ -26,19 +26,18 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
       video: {},
       assets: {}
     }, params.interactiveVideo);
-    self.options.video.advancedSettings = self.options.video.advancedSettings || {};
-    self.options.video.advancedSettings.startScreenOptions = self.options.video.advancedSettings.startScreenOptions || {};
+    self.options.video.startScreenOptions = self.options.video.startScreenOptions || {};
 
     // Add default title
-    if (!self.options.video.advancedSettings.title) {
-      self.options.video.advancedSettings.title = 'Interactive Video';
+    if (!self.options.video.startScreenOptions.title) {
+      self.options.video.startScreenOptions.title = 'Interactive Video';
     }
 
     // Set default splash options
     self.startScreenOptions = $.extend({
       hideStartTitle: false,
       shortStartDescription: ''
-    }, self.options.video.advancedSettings.startScreenOptions);
+    }, self.options.video.startScreenOptions);
 
     // Set overrides for interactions
     if (params.override && (params.override.showSolutionButton || params.override.retryButton)) {
@@ -107,8 +106,8 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
 
     // set start time
     startAt = (self.previousState && self.previousState.progress) ? Math.floor(self.previousState.progress) : 0;
-    if (startAt === 0 && !!self.options.video.advancedSettings.startVideoAt) {
-      startAt = self.options.video.advancedSettings.startVideoAt;
+    if (startAt === 0 && params.override && !!params.override.startVideoAt) {
+      startAt = params.override.startVideoAt;
     }
 
     // Start up the video player
@@ -117,7 +116,7 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
       params: {
         sources: self.options.video.files,
         visuals: {
-          poster: self.options.video.advancedSettings.startScreenOptions.poster,
+          poster: self.options.video.startScreenOptions.poster,
           controls: self.justVideo,
           fit: false
         },
@@ -136,7 +135,15 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
       return;
     }
 
+    /**
+     * Keep track if the video source is loaded.
+     * @private
+     */
+    var isLoaded = false;
+
+    // Handle video source loaded events (metadata)
     self.video.on('loaded', function (event) {
+      isLoaded = true;
       // Update IV player UI
       self.loaded();
     });
@@ -150,8 +157,8 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
     var firstPlay = true;
     self.video.on('stateChange', function (event) {
 
-      if (!self.controls) {
-        // Add controls if they're missing
+      if (!self.controls && isLoaded) {
+        // Add controls if they're missing and 'loaded' has happened
         self.addControls();
         self.trigger('resize');
       }
@@ -209,6 +216,7 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
 
           // Make sure we track buffering of the video.
           self.startUpdatingBufferBar();
+
           break;
       }
     });
@@ -377,11 +385,19 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
       });
     }
 
-    if (this.currentState === InteractiveVideo.LOADED) {
-      if (!this.video.pressToPlay) {
+    if (!this.video.pressToPlay) {
+      if (this.currentState === InteractiveVideo.LOADED) {
+        // Add all controls
         this.addControls();
       }
+      else {
+        // Add splash to allow start playing before video load
+        // (play may be needed to trigger load incase preloaded="none" is default)
+        this.addSplash();
+      }
     }
+
+
     this.currentState = InteractiveVideo.ATTACHED;
   };
 
@@ -402,7 +418,7 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
    */
   InteractiveVideo.prototype.addSplash = function () {
     var that = this;
-    if (this.editor !== undefined || this.video.pressToPlay || !this.video.play) {
+    if (this.editor !== undefined || this.video.pressToPlay || !this.video.play || this.$splash) {
       return;
     }
 
@@ -414,7 +430,7 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
               '<div class="h5p-splash-main-outer">' +
                 '<div class="h5p-splash-main-inner">' +
                   '<div class="h5p-splash-play-icon"></div>' +
-                  '<div class="h5p-splash-title">' + this.options.video.advancedSettings.title + '</div>' +
+                  '<div class="h5p-splash-title">' + this.options.video.startScreenOptions.title + '</div>' +
                 '</div>' +
               '</div>' +
             '</div>' +
@@ -680,7 +696,6 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
 
       // Add classes if changing visibility
       this.controls.$bookmarksChooser.toggleClass('h5p-transitioning', show || hiding);
-      this.controls.$bookmarks.toggleClass('h5p-blink', hiding);
     }
   };
   /**
@@ -895,7 +910,6 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
       });
       self.controls.$bookmarksChooser.bind('transitionend', function () {
         self.controls.$bookmarksChooser.removeClass('h5p-transitioning');
-        self.controls.$bookmarks.removeClass('h5p-blink')
       })
     }
 
@@ -1671,7 +1685,9 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
     self.updateInteractions(time);
 
     setTimeout(function () {
-      if (self.currentState === H5P.Video.PLAYING) {
+      if (self.currentState === H5P.Video.PLAYING ||
+        (self.currentState === H5P.Video.BUFFERING && self.lastState === H5P.Video.PLAYING)
+      ) {
         self.timeUpdate(self.video.getCurrentTime());
       }
     }, 40); // 25 fps
@@ -1783,7 +1799,7 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
    * @returns {string}
    */
   InteractiveVideo.prototype.getTitle = function() {
-    return H5P.createTitle(this.options.video.advancedSettings.title);
+    return H5P.createTitle(this.options.video.startScreenOptions.title);
   };
 
   /**
@@ -1854,12 +1870,12 @@ H5P.InteractiveVideo = (function ($, EventDispatcher, DragNBar, Interaction) {
     }
 
     // Adding info from copyright field
-    if (self.options.video.advancedSettings.copyright !== undefined) {
-      info.addMedia(self.options.video.advancedSettings.copyright);
+    if (self.options.video.startScreenOptions.copyright !== undefined) {
+      info.addMedia(self.options.video.startScreenOptions.copyright);
     }
 
     // Adding copyrights for poster
-    var poster = self.options.video.advancedSettings.startScreenOptions.poster;
+    var poster = self.options.video.startScreenOptions.poster;
     if (poster && poster.copyright !== undefined) {
       var image = new H5P.MediaCopyright(poster.copyright, self.l10n);
       var imgSource = H5P.getPath(poster.path, self.contentId);
